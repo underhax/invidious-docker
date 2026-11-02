@@ -37,9 +37,15 @@ jobs:
             exit 1
           fi
 
-          INVIDIOUS_VER=$(skopeo inspect --config "docker://${INVIDIOUS_REF}" | jq -r '.config.Labels["org.opencontainers.image.version"] // empty')
+          INVIDIOUS_VER=$(skopeo inspect --config "docker://${INVIDIOUS_REF}" | jq -r '
+            if ((.config.Labels["org.opencontainers.image.version"] // "") | test("^[vV]?[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9a-fA-F]+)?$")) then
+              .config.Labels["org.opencontainers.image.version"]
+            else
+              ((.config.Labels["org.opencontainers.image.created"] // "")[0:10] | gsub("-"; ".")) + "-" + ((.config.Labels["org.opencontainers.image.revision"] // "")[0:7])
+            end
+          ')
           COMPANION_VER=$(skopeo inspect --config "docker://${COMPANION_REF}" | jq -r '
-            if (.config.Labels["org.opencontainers.image.version"] // "latest") != "latest" then
+            if ((.config.Labels["org.opencontainers.image.version"] // "") | test("^[vV]?[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9a-fA-F]+)?$")) then
               .config.Labels["org.opencontainers.image.version"]
             else
               ((.config.Labels["org.opencontainers.image.created"] // "")[0:10] | gsub("-"; ".")) + "-" + ((.config.Labels["org.opencontainers.image.revision"] // "")[0:7])
