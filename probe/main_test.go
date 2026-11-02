@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,10 +14,11 @@ import (
 )
 
 var (
-	errMockTransport = errors.New("simulated transport failure")
+	errMockSocket    = errors.New("simulated unix socket failure")
 	errMockClose     = errors.New("simulated response body close error")
 	errMockRead      = errors.New("simulated response body read error")
 	errMockRequest   = errors.New("simulated request creation failure")
+	errMockTransport = errors.New("simulated transport failure")
 )
 
 type mockRoundTripper struct {
@@ -29,16 +31,8 @@ func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 
 var currentMockTransport http.RoundTripper
 
-func mockTransportProvider(_ string) http.RoundTripper {
+func mockTransportProvider() http.RoundTripper {
 	return currentMockTransport
-}
-
-func mockFailingCreateRequest(_ context.Context, _, _ string, _ io.Reader) (*http.Request, error) {
-	return nil, errMockRequest
-}
-
-func absentContext() context.Context {
-	return nil
 }
 
 type closeFailingReader struct {
@@ -59,52 +53,31 @@ func (readFailingReader) Close() error {
 	return nil
 }
 
-func TestDefaultGetTransport(t *testing.T) {
-	if got := defaultGetTransport("probe.example.com"); got == nil {
-		t.Fatal("defaultGetTransport(tcp) returned nil")
-	}
-	if got := defaultGetTransport(unixHostName); got == nil {
-		t.Fatal("defaultGetTransport(unix) returned nil")
-	}
+func absentContext() context.Context {
+	return nil
 }
 
-func TestDefaultDialUnix(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	if _, err := defaultDialUnix(ctx, "tcp", "unix:80"); err == nil {
-		t.Fatal("defaultDialUnix() expected error for canceled context")
-	}
-
-	tempDir := t.TempDir()
-	socketPath := filepath.Join(tempDir, "test.sock")
-	var lc net.ListenConfig
-	ln, err := lc.Listen(context.Background(), "unix", socketPath)
-	if err != nil {
-		t.Fatalf("lc.Listen() error: %v", err)
-	}
-	defer func() {
-		if closeErr := ln.Close(); closeErr != nil {
-			t.Errorf("closing listener: %v", closeErr)
-		}
-	}()
-
-	origPath := companionSocketPath
-	companionSocketPath = socketPath
-	t.Cleanup(func() {
-		companionSocketPath = origPath
-	})
-
-	conn, err := defaultDialUnix(context.Background(), "tcp", "unix:80")
-	if err != nil {
-		t.Fatalf("defaultDialUnix() unexpected error: %v", err)
-	}
-	if closeErr := conn.Close(); closeErr != nil {
-		t.Errorf("conn.Close() error: %v", closeErr)
-	}
+func mockFailingCreateRequest(_ context.Context, _, _ string, _ io.Reader) (*http.Request, error) {
+	return nil, errMockRequest
 }
 
-func TestResolveEndpoint(t *testing.T) {
+func mockFailingCheckUnixSocket(_ context.Context, _ string) error {
+	return errMockSocket
+}
+
+func mockSuccessCheckUnixSocket(_ context.Context, _ string) error {
+	return nil
+}
+
+func mockFailingDoRequest(_ context.Context, _ string) (int, error) {
+	return 0, errMockTransport
+}
+
+func mockSuccessDoRequest(_ context.Context, _ string) (int, error) {
+	return http.StatusOK, nil
+}
+
+func TestResolveTarget(t *testing.T) {
 	tests := []struct {
 		name      string
 		want      string
@@ -127,14 +100,14 @@ func TestResolveEndpoint(t *testing.T) {
 			want:      defaultEndpoint,
 		},
 		{
-			name:      "companion shorthand selects companion endpoint",
+			name:      "companion argument selects companion target",
 			extraArgs: []string{companionTargetArg},
-			want:      defaultCompanionEndpoint,
+			want:      companionTargetArg,
 		},
 		{
-			name:      "companion full URL selects companion endpoint",
-			extraArgs: []string{defaultCompanionEndpoint},
-			want:      defaultCompanionEndpoint,
+			name:      "arbitrary argument falls back to default endpoint",
+			extraArgs: []string{"unrecognized-target"},
+			want:      defaultEndpoint,
 		},
 	}
 
@@ -144,119 +117,105 @@ func TestResolveEndpoint(t *testing.T) {
 			if !tc.noArgs {
 				args = append([]string{"/usr/local/bin/probe"}, tc.extraArgs...)
 			}
-			if got := ResolveEndpoint(args); got != tc.want {
-				t.Errorf("ResolveEndpoint(%v) = %q, want %q", args, got, tc.want)
+			if got := ResolveTarget(args); got != tc.want {
+				t.Errorf("ResolveTarget(%v) = %q, want %q", args, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestCheckEndpoint(t *testing.T) {
+func TestCheckTarget(t *testing.T) {
+	origCheckSocket := checkUnixSocket
+	origDoRequest := doRequest
+	defer func() {
+		checkUnixSocket = origCheckSocket
+		doRequest = origDoRequest
+	}()
+
 	tests := []struct {
-		mockTripper *mockRoundTripper
-		name        string
-		wantCode    int
+		socketFunc func(context.Context, string) error
+		reqFunc    func(context.Context, string) (int, error)
+		name       string
+		target     string
+		wantCode   int
 	}{
 		{
-			mockTripper: &mockRoundTripper{
-				roundTripFunc: func(_ *http.Request) (*http.Response, error) {
-					return &http.Response{
-						StatusCode: http.StatusOK,
-						Body:       io.NopCloser(strings.NewReader("OK")),
-					}, nil
-				},
-			},
-			name:     "healthy response returns success code",
+			name:       "companion socket success returns zero",
+			target:     companionTargetArg,
+			socketFunc: mockSuccessCheckUnixSocket,
+			wantCode:   0,
+		},
+		{
+			name:       "companion socket failure returns one",
+			target:     companionTargetArg,
+			socketFunc: mockFailingCheckUnixSocket,
+			wantCode:   1,
+		},
+		{
+			name:     "http endpoint success returns zero",
+			target:   "http://probe.example.com:3000/api/v1/stats",
+			reqFunc:  mockSuccessDoRequest,
 			wantCode: 0,
 		},
 		{
-			mockTripper: &mockRoundTripper{
-				roundTripFunc: func(_ *http.Request) (*http.Response, error) {
-					return &http.Response{
-						StatusCode: http.StatusServiceUnavailable,
-						Body:       io.NopCloser(strings.NewReader("unavailable")),
-					}, nil
-				},
-			},
-			name:     "service unavailable returns error code",
+			name:     "http endpoint failure returns one",
+			target:   "http://probe.example.net:3000/api/v1/stats",
+			reqFunc:  mockFailingDoRequest,
 			wantCode: 1,
 		},
 		{
-			mockTripper: &mockRoundTripper{
-				roundTripFunc: func(_ *http.Request) (*http.Response, error) {
-					return &http.Response{
-						StatusCode: http.StatusInternalServerError,
-						Body:       io.NopCloser(strings.NewReader("internal error")),
-					}, nil
-				},
+			name:   "http endpoint non-200 status returns one",
+			target: "http://probe.example.org:3000/api/v1/stats",
+			reqFunc: func(_ context.Context, _ string) (int, error) {
+				return http.StatusServiceUnavailable, nil
 			},
-			name:     "internal server error returns error code",
-			wantCode: 1,
-		},
-		{
-			mockTripper: &mockRoundTripper{
-				roundTripFunc: func(_ *http.Request) (*http.Response, error) {
-					return &http.Response{
-						StatusCode: http.StatusNotFound,
-						Body:       io.NopCloser(strings.NewReader("not found")),
-					}, nil
-				},
-			},
-			name:     "not found returns error code",
-			wantCode: 1,
-		},
-		{
-			mockTripper: &mockRoundTripper{
-				roundTripFunc: func(_ *http.Request) (*http.Response, error) {
-					return nil, errMockTransport
-				},
-			},
-			name:     "transport error returns error code",
 			wantCode: 1,
 		},
 	}
 
-	originalTransport := getTransport
-	getTransport = mockTransportProvider
-	defer func() {
-		getTransport = originalTransport
-	}()
-
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			currentMockTransport = tc.mockTripper
-			got := CheckEndpoint(context.Background(), "http://invidious.example.com:3000/api/v1/stats")
-			if got != tc.wantCode {
-				t.Errorf("CheckEndpoint() = %d, want %d", got, tc.wantCode)
+			if tc.socketFunc != nil {
+				checkUnixSocket = tc.socketFunc
+			}
+			if tc.reqFunc != nil {
+				doRequest = tc.reqFunc
+			}
+
+			if got := CheckTarget(context.Background(), tc.target); got != tc.wantCode {
+				t.Errorf("CheckTarget(%q) = %d, want %d", tc.target, got, tc.wantCode)
 			}
 		})
 	}
 }
 
-func TestCheckEndpoint_CancelledContext(t *testing.T) {
+func TestDefaultCheckUnixSocket(t *testing.T) {
+	tempDir := t.TempDir()
+	socketPath := filepath.Join(tempDir, "c.sock")
+
+	var lc net.ListenConfig
+	ln, err := lc.Listen(context.Background(), "unix", socketPath)
+	if err != nil {
+		t.Fatalf("lc.Listen() error: %v", err)
+	}
+
+	if err := defaultCheckUnixSocket(context.Background(), socketPath); err != nil {
+		t.Errorf("defaultCheckUnixSocket(active) error = %v", err)
+	}
+
+	if closeErr := ln.Close(); closeErr != nil {
+		t.Errorf("closing listener: %v", closeErr)
+	}
+
+	if err := defaultCheckUnixSocket(context.Background(), socketPath); err == nil {
+		t.Error("defaultCheckUnixSocket(closed) expected error, got nil")
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	got := CheckEndpoint(ctx, "http://probe.example.org:3000/api/v1/stats")
-	if got != 1 {
-		t.Errorf("CheckEndpoint() with cancelled context = %d, want 1", got)
-	}
-}
-
-func mockFailingDoRequest(_ context.Context, _ string) (int, error) {
-	return 0, errMockTransport
-}
-
-func TestCheckEndpoint_MockedFailure(t *testing.T) {
-	originalDoRequest := doRequest
-	doRequest = mockFailingDoRequest
-	defer func() {
-		doRequest = originalDoRequest
-	}()
-
-	got := CheckEndpoint(context.Background(), "http://health.example:3000/api/v1/stats")
-	if got != 1 {
-		t.Errorf("CheckEndpoint() with mocked transport error = %d, want 1", got)
+	if err := defaultCheckUnixSocket(ctx, socketPath); err == nil {
+		t.Error("defaultCheckUnixSocket(canceled context) expected error, got nil")
 	}
 }
 
@@ -267,6 +226,36 @@ func TestDefaultCreateRequest(t *testing.T) {
 
 	if _, err := defaultCreateRequest(absentContext(), http.MethodGet, "http://absent.example.net:3000/api/v1/stats", http.NoBody); err == nil {
 		t.Error("defaultCreateRequest() expected an error for an absent context")
+	}
+}
+
+func TestDefaultGetTransport(t *testing.T) {
+	if got := defaultGetTransport(); got != http.DefaultTransport {
+		t.Errorf("defaultGetTransport() = %v, want %v", got, http.DefaultTransport)
+	}
+}
+
+func TestDefaultDoRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthy" {
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write([]byte("OK")); err != nil {
+				t.Errorf("w.Write error: %v", err)
+			}
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	statusCode, err := defaultDoRequest(context.Background(), server.URL+"/healthy")
+	if err != nil || statusCode != http.StatusOK {
+		t.Fatalf("defaultDoRequest(healthy) = %d, err = %v", statusCode, err)
+	}
+
+	statusCode, err = defaultDoRequest(context.Background(), server.URL+"/missing")
+	if err != nil || statusCode != http.StatusNotFound {
+		t.Fatalf("defaultDoRequest(missing) = %d, err = %v", statusCode, err)
 	}
 }
 
@@ -348,40 +337,61 @@ func TestDefaultDoRequest_InvalidURL(t *testing.T) {
 	}
 }
 
+func TestDefaultDoRequest_ExecutionFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := defaultDoRequest(ctx, "http://canceled.example.org:3000/api/v1/stats"); err == nil {
+		t.Error("defaultDoRequest(canceled) expected error, got nil")
+	}
+}
+
 var recordedExitCode = -1
 
 func mockExitRecorder(code int) {
 	recordedExitCode = code
 }
 
-func mockSuccessDoRequest(_ context.Context, _ string) (int, error) {
-	return http.StatusOK, nil
-}
-
 func TestMain_Execution(t *testing.T) {
 	originalExit := exitFunc
 	originalDoRequest := doRequest
+	originalCheckSocket := checkUnixSocket
 	originalArgs := os.Args
 	defer func() {
 		exitFunc = originalExit
 		doRequest = originalDoRequest
+		checkUnixSocket = originalCheckSocket
 		os.Args = originalArgs
 	}()
 
 	tests := []struct {
-		reqFunc  func(context.Context, string) (int, error)
-		name     string
-		wantCode int
+		reqFunc    func(context.Context, string) (int, error)
+		socketFunc func(context.Context, string) error
+		name       string
+		extraArgs  []string
+		wantCode   int
 	}{
 		{
-			name:     "healthy endpoint exits with zero",
+			name:     "healthy invidious endpoint exits with zero",
 			reqFunc:  mockSuccessDoRequest,
 			wantCode: 0,
 		},
 		{
-			name:     "failing endpoint exits with one",
+			name:     "failing invidious endpoint exits with one",
 			reqFunc:  mockFailingDoRequest,
 			wantCode: 1,
+		},
+		{
+			name:       "healthy companion target exits with zero",
+			socketFunc: mockSuccessCheckUnixSocket,
+			extraArgs:  []string{companionTargetArg},
+			wantCode:   0,
+		},
+		{
+			name:       "failing companion target exits with one",
+			socketFunc: mockFailingCheckUnixSocket,
+			extraArgs:  []string{companionTargetArg},
+			wantCode:   1,
 		},
 	}
 
@@ -389,7 +399,8 @@ func TestMain_Execution(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			doRequest = tc.reqFunc
-			os.Args = []string{"probe"}
+			checkUnixSocket = tc.socketFunc
+			os.Args = append([]string{"probe"}, tc.extraArgs...)
 			recordedExitCode = -1
 
 			main()

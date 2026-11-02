@@ -1,5 +1,5 @@
 // Package main implements a zero-dependency healthcheck probe that validates
-// Invidious and Invidious Companion availability against their internal HTTP liveness endpoints.
+// Invidious and Invidious Companion availability against their internal HTTP and socket liveness endpoints.
 package main
 
 import (
@@ -16,37 +16,22 @@ import (
 
 const (
 	defaultEndpoint            = "http://127.0.0.1:3000/api/v1/stats"
-	defaultCompanionEndpoint   = "http://unix/companion/healthz"
 	defaultCompanionSocketPath = "/tmp/invidious-companion.sock"
 	companionTargetArg         = "companion"
-	unixHostName               = "unix"
 	defaultTimeout             = 3 * time.Second
 )
 
-func defaultDialUnix(ctx context.Context, _, _ string) (net.Conn, error) {
+func defaultCheckUnixSocket(ctx context.Context, socketPath string) error {
 	var d net.Dialer
-	conn, err := d.DialContext(ctx, "unix", companionSocketPath)
+	conn, err := d.DialContext(ctx, "unix", socketPath)
 	if err != nil {
-		return nil, fmt.Errorf("dialing companion unix socket: %w", err)
+		return fmt.Errorf("dialing companion unix socket %q: %w", socketPath, err)
 	}
-	return conn, nil
-}
-
-func defaultGetTransport(host string) http.RoundTripper {
-	if host == unixHostName {
-		return &http.Transport{
-			DialContext: dialUnix,
-		}
+	if closeErr := conn.Close(); closeErr != nil {
+		return fmt.Errorf("closing companion unix socket %q: %w", socketPath, closeErr)
 	}
-	return http.DefaultTransport
+	return nil
 }
-
-var (
-	companionSocketPath = defaultCompanionSocketPath
-	dialUnix            = defaultDialUnix
-	getTransport        = defaultGetTransport
-	exitFunc            = os.Exit
-)
 
 func defaultCreateRequest(ctx context.Context, method, endpoint string, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
@@ -56,7 +41,9 @@ func defaultCreateRequest(ctx context.Context, method, endpoint string, body io.
 	return req, nil
 }
 
-var createRequest = defaultCreateRequest
+func defaultGetTransport() http.RoundTripper {
+	return http.DefaultTransport
+}
 
 func defaultDoRequest(ctx context.Context, endpoint string) (statusCode int, err error) {
 	parsedURL, err := url.Parse(endpoint)
@@ -75,7 +62,7 @@ func defaultDoRequest(ctx context.Context, endpoint string) (statusCode int, err
 
 	client := &http.Client{
 		Timeout:   defaultTimeout,
-		Transport: getTransport(parsedURL.Host),
+		Transport: getTransport(),
 	}
 
 	resp, err := client.Do(req)
@@ -95,23 +82,35 @@ func defaultDoRequest(ctx context.Context, endpoint string) (statusCode int, err
 	return resp.StatusCode, nil
 }
 
-var doRequest = defaultDoRequest
+var (
+	companionSocketPath = defaultCompanionSocketPath
+	checkUnixSocket     = defaultCheckUnixSocket
+	createRequest       = defaultCreateRequest
+	getTransport        = defaultGetTransport
+	doRequest           = defaultDoRequest
+	exitFunc            = os.Exit
+)
 
-// ResolveEndpoint selects the target healthcheck URL from command-line arguments so
-// both Invidious and Invidious Companion can share a single static probe binary.
-func ResolveEndpoint(args []string) string {
-	if len(args) > 1 {
-		switch strings.TrimSpace(args[1]) {
-		case companionTargetArg, defaultCompanionEndpoint:
-			return defaultCompanionEndpoint
-		}
+// ResolveTarget determines whether the healthcheck probe targets the Companion UNIX
+// domain socket or falls back to querying the Invidious HTTP statistics endpoint.
+func ResolveTarget(args []string) string {
+	if len(args) > 1 && strings.TrimSpace(args[1]) == companionTargetArg {
+		return companionTargetArg
 	}
 	return defaultEndpoint
 }
 
-// CheckEndpoint queries the target endpoint using HTTP GET to verify service liveness.
-func CheckEndpoint(ctx context.Context, endpoint string) int {
-	statusCode, err := doRequest(ctx, endpoint)
+// CheckTarget tests service liveness by verifying either UNIX domain socket connectivity
+// for the Companion or a successful HTTP status code for the Invidious backend.
+func CheckTarget(ctx context.Context, target string) int {
+	if target == companionTargetArg {
+		if err := checkUnixSocket(ctx, companionSocketPath); err != nil {
+			return 1
+		}
+		return 0
+	}
+
+	statusCode, err := doRequest(ctx, target)
 	if err != nil || statusCode != http.StatusOK {
 		return 1
 	}
@@ -122,5 +121,5 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
-	exitFunc(CheckEndpoint(ctx, ResolveEndpoint(os.Args)))
+	exitFunc(CheckTarget(ctx, ResolveTarget(os.Args)))
 }
