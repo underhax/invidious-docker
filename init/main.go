@@ -65,8 +65,6 @@ const (
 	envCacheEnabled         = "CACHE_ENABLED"
 	envCacheDirectory       = "CACHE_DIRECTORY"
 	envProxy                = "PROXY"
-	envSSLCertFile          = "SSL_CERT_FILE"
-	envSSLCertDir           = "SSL_CERT_DIR"
 	envHome                 = "HOME"
 
 	prefixPreferences = "INVIDIOUS_DEFAULT_USER_PREFERENCES_"
@@ -84,8 +82,6 @@ const (
 	defaultServerPort         = "3000"
 	defaultServerBasePath     = "/companion"
 	defaultCacheDirectory     = "/var/tmp"
-	defaultSSLCertFile        = "/etc/ssl/certs/ca-certificates.crt"
-	defaultSSLCertDir         = "/etc/ssl/certs"
 	defaultHomeDir            = "/tmp"
 	defaultBoolTrue           = "true"
 	defaultBoolFalse          = "false"
@@ -751,8 +747,6 @@ func configureEnforcedSettings(env []string) []string {
 	env = setEnvVar(env, envServerBasePath, defaultServerBasePath)
 	env = setEnvVar(env, envCacheEnabled, defaultBoolTrue)
 	env = setEnvVar(env, envCacheDirectory, defaultCacheDirectory)
-	env = setEnvVar(env, envSSLCertFile, defaultSSLCertFile)
-	env = setEnvVar(env, envSSLCertDir, defaultSSLCertDir)
 	env = setEnvVar(env, envHome, defaultHomeDir)
 	return env
 }

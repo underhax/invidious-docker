@@ -12,29 +12,29 @@ COPY probe/ ./probe/
 
 RUN --mount=from=invidious-donor,source=/invidious,target=/mnt/invidious \
     --mount=from=companion-donor,source=/,target=/mnt/companion \
-    mkdir -p /out/invidious/etc/ssl/certs \
+    mkdir -p /out/invidious/etc/ssl \
              /out/invidious/invidious \
              /out/invidious/var/run/postgresql \
              /out/invidious/var/run/companion \
              /out/invidious/tmp \
-             /out/companion/etc/ssl/certs \
+             /out/companion/etc/ssl \
              /out/companion/usr \
              /out/companion/var/tmp/youtubei.js \
              /out/companion/tmp \
              /out/usr/local/bin && \
-    chmod 0755 /out/invidious/etc /out/invidious/etc/ssl /out/invidious/etc/ssl/certs \
+    chmod 0755 /out/invidious/etc /out/invidious/etc/ssl \
                /out/invidious/invidious /out/invidious/var /out/invidious/var/run \
-               /out/companion/etc /out/companion/etc/ssl /out/companion/etc/ssl/certs \
+               /out/companion/etc /out/companion/etc/ssl \
                /out/companion/usr /out/usr /out/usr/local /out/usr/local/bin && \
     chmod 0700 /out/invidious/var/run/postgresql \
                /out/invidious/var/run/companion \
                /out/companion/var/tmp/youtubei.js \
                /out/companion/tmp && \
     chmod 1777 /out/invidious/tmp && \
-    cp /etc/ssl/certs/ca-certificates.crt /out/invidious/etc/ssl/certs/ca-certificates.crt && \
-    cp /etc/ssl/certs/ca-certificates.crt /out/companion/etc/ssl/certs/ca-certificates.crt && \
-    chmod 0444 /out/invidious/etc/ssl/certs/ca-certificates.crt \
-               /out/companion/etc/ssl/certs/ca-certificates.crt && \
+    cp /etc/ssl/certs/ca-certificates.crt /out/invidious/etc/ssl/cert.pem && \
+    cp /etc/ssl/certs/ca-certificates.crt /out/companion/etc/ssl/cert.pem && \
+    chmod 0444 /out/invidious/etc/ssl/cert.pem \
+               /out/companion/etc/ssl/cert.pem && \
     cp -R /mnt/invidious/assets \
           /mnt/invidious/locales \
           /mnt/invidious/config \

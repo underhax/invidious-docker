@@ -1038,8 +1038,6 @@ func TestPrepareEnvironment_ScanningAndStructuredSecrets(t *testing.T) {
 				"SERVER_BASE_PATH=/companion",
 				"CACHE_ENABLED=true",
 				"CACHE_DIRECTORY=/var/tmp",
-				"SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
-				"SSL_CERT_DIR=/etc/ssl/certs",
 				"HOME=/tmp",
 			},
 		},
