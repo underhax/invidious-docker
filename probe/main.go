@@ -21,9 +21,16 @@ const (
 	defaultTimeout             = 3 * time.Second
 )
 
+type socketDialer interface {
+	DialContext(ctx context.Context, network, address string) (net.Conn, error)
+}
+
+func defaultCreateDialer() socketDialer {
+	return &net.Dialer{}
+}
+
 func defaultCheckUnixSocket(ctx context.Context, socketPath string) error {
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, "unix", socketPath)
+	conn, err := createDialer().DialContext(ctx, "unix", socketPath)
 	if err != nil {
 		return fmt.Errorf("dialing companion unix socket %q: %w", socketPath, err)
 	}
@@ -84,6 +91,7 @@ func defaultDoRequest(ctx context.Context, endpoint string) (statusCode int, err
 
 var (
 	companionSocketPath = defaultCompanionSocketPath
+	createDialer        = defaultCreateDialer
 	checkUnixSocket     = defaultCheckUnixSocket
 	createRequest       = defaultCreateRequest
 	getTransport        = defaultGetTransport

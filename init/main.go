@@ -76,7 +76,7 @@ const (
 )
 
 const (
-	defaultPostgresHost       = "/var/run/postgresql"
+	defaultPostgresSocketPath = "/var/run/postgresql/.s.PGSQL.5432"
 	defaultInvidiousConfig    = "{}"
 	defaultInvidiousCompanion = `[{"private_url":"http://127.0.0.1:8282/companion","builtin_proxy":true}]`
 	defaultBindAddress        = "0.0.0.0"
@@ -582,7 +582,7 @@ func configureDatabaseSecrets(env []string, secretsDir string) ([]string, error)
 	}
 
 	userInfo := url.UserPassword(dbUser, dbPassword)
-	databaseURL := fmt.Sprintf("postgres://%s@/%s?host=%s", userInfo.String(), url.PathEscape(dbName), defaultPostgresHost)
+	databaseURL := fmt.Sprintf("postgres://%s@/%s?host=%s", userInfo.String(), url.PathEscape(dbName), defaultPostgresSocketPath)
 	return setEnvVar(env, envDatabaseURL, databaseURL), nil
 }
 

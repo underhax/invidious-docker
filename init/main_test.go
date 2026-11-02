@@ -1075,7 +1075,7 @@ func TestPrepareEnvironment_ScanningAndStructuredSecrets(t *testing.T) {
 				fileDBPassword: "s3cr3t_password",
 			},
 			wantEntries: []string{
-				"INVIDIOUS_DATABASE_URL=postgres://kemal:s3cr3t_password@/invidious?host=/var/run/postgresql",
+				"INVIDIOUS_DATABASE_URL=postgres://kemal:s3cr3t_password@/invidious?host=/var/run/postgresql/.s.PGSQL.5432",
 			},
 		},
 		{

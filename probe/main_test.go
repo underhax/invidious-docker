@@ -77,6 +77,24 @@ func mockSuccessDoRequest(_ context.Context, _ string) (int, error) {
 	return http.StatusOK, nil
 }
 
+type mockErrorCloserConn struct {
+	net.Conn
+}
+
+func (mockErrorCloserConn) Close() error {
+	return errMockClose
+}
+
+type mockErrorCloserDialer struct{}
+
+func (mockErrorCloserDialer) DialContext(_ context.Context, _, _ string) (net.Conn, error) {
+	return mockErrorCloserConn{}, nil
+}
+
+func mockErrorCloserCreateDialer() socketDialer {
+	return mockErrorCloserDialer{}
+}
+
 func TestResolveTarget(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -189,6 +207,13 @@ func TestCheckTarget(t *testing.T) {
 	}
 }
 
+func TestDefaultCreateDialer(t *testing.T) {
+	d := defaultCreateDialer()
+	if d == nil {
+		t.Fatal("expected non-nil dialer, got nil")
+	}
+}
+
 func TestDefaultCheckUnixSocket(t *testing.T) {
 	tempDir := t.TempDir()
 	socketPath := filepath.Join(tempDir, "c.sock")
@@ -216,6 +241,16 @@ func TestDefaultCheckUnixSocket(t *testing.T) {
 
 	if err := defaultCheckUnixSocket(ctx, socketPath); err == nil {
 		t.Error("defaultCheckUnixSocket(canceled context) expected error, got nil")
+	}
+
+	origDialer := createDialer
+	createDialer = mockErrorCloserCreateDialer
+	t.Cleanup(func() {
+		createDialer = origDialer
+	})
+
+	if err := defaultCheckUnixSocket(context.Background(), socketPath); !errors.Is(err, errMockClose) {
+		t.Errorf("defaultCheckUnixSocket(close failure) error = %v, want %v", err, errMockClose)
 	}
 }
 
