@@ -1,4 +1,4 @@
-FROM quay.io/invidious/invidious:latest@sha256:3ddcd912e86339b333d19fcca8bc46e59c0ce0e4e367130f11c1dede69463485 AS invidious-donor
+FROM quay.io/invidious/invidious:master@sha256:2aed7590245f52a1ea324342543a9c4a509aecf51ab3a1b5c76634e820e246f7 AS invidious-donor
 
 FROM quay.io/invidious/invidious-companion:latest@sha256:55f0bc1002c0edbe4e8163d503c7d797ed919e5861e2c0d0f829ae80138237a4 AS companion-donor
 
