@@ -29,8 +29,8 @@ jobs:
           IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         run: |
           IMAGE_BASE=$(printf '%s\n' "$IMAGE_REPO" | tr '[:upper:]' '[:lower:]')
-          INVIDIOUS_REF=$(sed -nE 's|^FROM (quay\.io/invidious/invidious:[^ ]+) AS invidious-donor-amd64$|\1|p' Dockerfile)
-          COMPANION_REF=$(sed -nE 's|^FROM (quay\.io/invidious/invidious-companion:[^ ]+) AS companion-donor$|\1|p' Dockerfile)
+          INVIDIOUS_REF=$(sed -nE 's|^FROM (quay\.io/invidious/invidious:[^ ]+) AS invidious-donor-amd64$|\1|p' Dockerfile | sed -E 's/:[^@]+@/@/')
+          COMPANION_REF=$(sed -nE 's|^FROM (quay\.io/invidious/invidious-companion:[^ ]+) AS companion-donor$|\1|p' Dockerfile | sed -E 's/:[^@]+@/@/')
 
           if [ -z "$INVIDIOUS_REF" ] || [ -z "$COMPANION_REF" ]; then
             printf 'ERROR: missing donor image references in Dockerfile\n' >&2
@@ -45,6 +45,9 @@ jobs:
               ((.config.Labels["org.opencontainers.image.created"] // "")[0:10] | gsub("-"; ".")) + "-" + ((.config.Labels["org.opencontainers.image.revision"] // "")[0:7])
             end
           ')
+
+          INVIDIOUS_VER="${INVIDIOUS_VER#v}"
+          COMPANION_VER="${COMPANION_VER#v}"
 
           if [[ ! "$INVIDIOUS_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-fA-F]+)?$ ]]; then
             printf 'ERROR: invalid or missing Invidious version: %s\n' "$INVIDIOUS_VER" >&2
