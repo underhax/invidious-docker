@@ -1,12 +1,8 @@
-FROM quay.io/invidious/invidious:latest@sha256:3ddcd912e86339b333d19fcca8bc46e59c0ce0e4e367130f11c1dede69463485 AS invidious-donor-amd64
-
-FROM quay.io/invidious/invidious:latest-arm64@sha256:ff73a4423ce10905e99ddb62a1a1225e31f5890f2ee05ddbe6cb60c040a741bc AS invidious-donor-arm64
+FROM quay.io/invidious/invidious:latest@sha256:3ddcd912e86339b333d19fcca8bc46e59c0ce0e4e367130f11c1dede69463485 AS invidious-donor
 
 FROM quay.io/invidious/invidious-companion:latest@sha256:55f0bc1002c0edbe4e8163d503c7d797ed919e5861e2c0d0f829ae80138237a4 AS companion-donor
 
 FROM golang:1.27.3-alpine3.24@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS go-builder
-
-ARG TARGETARCH=amd64
 
 WORKDIR /build
 
@@ -14,8 +10,7 @@ COPY go.mod ./
 COPY init/ ./init/
 COPY probe/ ./probe/
 
-RUN --mount=from=invidious-donor-amd64,source=/invidious,target=/mnt/invidious-amd64 \
-    --mount=from=invidious-donor-arm64,source=/invidious,target=/mnt/invidious-arm64 \
+RUN --mount=from=invidious-donor,source=/invidious,target=/mnt/invidious \
     --mount=from=companion-donor,source=/,target=/mnt/companion \
     mkdir -p /out/invidious/etc/ssl/certs \
              /out/invidious/invidious \
@@ -40,10 +35,10 @@ RUN --mount=from=invidious-donor-amd64,source=/invidious,target=/mnt/invidious-a
     cp /etc/ssl/certs/ca-certificates.crt /out/companion/etc/ssl/certs/ca-certificates.crt && \
     chmod 0444 /out/invidious/etc/ssl/certs/ca-certificates.crt \
                /out/companion/etc/ssl/certs/ca-certificates.crt && \
-    cp -R "/mnt/invidious-${TARGETARCH}/assets" \
-          "/mnt/invidious-${TARGETARCH}/locales" \
-          "/mnt/invidious-${TARGETARCH}/config" \
-          "/mnt/invidious-${TARGETARCH}/invidious" \
+    cp -R /mnt/invidious/assets \
+          /mnt/invidious/locales \
+          /mnt/invidious/config \
+          /mnt/invidious/invidious \
           /out/invidious/invidious/ && \
     chmod 0555 /out/invidious/invidious/invidious && \
     cp /mnt/companion/etc/nsswitch.conf /out/companion/etc/nsswitch.conf && \

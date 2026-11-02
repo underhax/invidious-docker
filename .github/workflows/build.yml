@@ -29,7 +29,7 @@ jobs:
           IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         run: |
           IMAGE_BASE=$(printf '%s\n' "$IMAGE_REPO" | tr '[:upper:]' '[:lower:]')
-          INVIDIOUS_REF=$(sed -nE 's|^FROM (quay\.io/invidious/invidious:[^ ]+) AS invidious-donor-amd64$|\1|p' Dockerfile | sed -E 's/:[^@]+@/@/')
+          INVIDIOUS_REF=$(sed -nE 's|^FROM (quay\.io/invidious/invidious:[^ ]+) AS invidious-donor$|\1|p' Dockerfile | sed -E 's/:[^@]+@/@/')
           COMPANION_REF=$(sed -nE 's|^FROM (quay\.io/invidious/invidious-companion:[^ ]+) AS companion-donor$|\1|p' Dockerfile | sed -E 's/:[^@]+@/@/')
 
           if [ -z "$INVIDIOUS_REF" ] || [ -z "$COMPANION_REF" ]; then
@@ -77,8 +77,10 @@ jobs:
       matrix:
         include:
           - platform: linux/amd64
+            dockerfile: ./Dockerfile
             push_tag_suffix: -amd64
           - platform: linux/arm64
+            dockerfile: ./Dockerfile.arm64
             push_tag_suffix: -arm64
 
     steps:
@@ -102,7 +104,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: ./Dockerfile
+          file: ${{ matrix.dockerfile }}
           target: invidious
           push: true
           platforms: ${{ matrix.platform }}
@@ -116,7 +118,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          file: ./Dockerfile
+          file: ${{ matrix.dockerfile }}
           target: companion
           push: true
           platforms: ${{ matrix.platform }}
