@@ -1,8 +1,8 @@
-FROM quay.io/invidious/invidious:master-arm64@sha256:df62ca2da23928b54809583cd13117e0b1d61e5a06041702441d877ef2bbcc3b AS invidious-donor
+FROM quay.io/invidious/invidious:master-arm64@sha256:c3270e280c0018b1bbbcc22633af7ce84fca5d6447fa5d15c13f63bc8e68991a AS invidious-donor
 
 FROM quay.io/invidious/invidious-companion:latest@sha256:292d889ff6d4cb31970cd35ea9eea8b249dc8c1dc3c66b3ad1b9c4fd0ffb62d1 AS companion-donor
 
-FROM golang:1.27.3-alpine3.24@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS go-builder
+FROM golang:1.27.3-alpine3.24@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18 AS go-builder
 
 WORKDIR /build
 

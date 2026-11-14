@@ -1,0 +1,214 @@
+name: invidious
+
+services:
+  postgres:
+    image: postgres:${POSTGRES_VERSION:-18-alpine}
+    container_name: invidious-db
+    hostname: invidious-db
+    restart: always
+    network_mode: "none"
+    user: "${APP_UID}:${APP_GID}"
+    read_only: true
+    ipc: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add: []
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+          pids: 100
+    mem_reservation: 128M
+    environment:
+      POSTGRES_DB_FILE: /run/secrets/db_name
+      POSTGRES_USER_FILE: /run/secrets/db_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    command:
+      - "postgres"
+      - "-c"
+      - "unix_socket_directories=/var/run/postgresql"
+      - "-c"
+      - "listen_addresses="
+    secrets:
+      - db_name
+      - db_user
+      - db_password
+    healthcheck:
+      test: ["CMD-SHELL", "PGPASSWORD=\"$$(cat /run/secrets/db_password)\" psql -U \"$$(cat /run/secrets/db_user)\" -d \"$$(cat /run/secrets/db_name)\" -h /var/run/postgresql -c 'select 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    tmpfs:
+      - /tmp:mode=1777,noexec,nosuid,nodev,size=64m
+    volumes:
+      - postgres_socket:/var/run/postgresql
+      - ./postgres:/var/lib/postgresql:rw,noexec,nosuid,nodev
+      - /etc/localtime:/etc/localtime:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  companion:
+    image: ghcr.io/underhax/invidious-docker:companion-${COMPANION_VERSION:-latest}
+    container_name: invidious-companion
+    hostname: invidious-companion
+    restart: always
+    user: "${APP_UID}:${APP_GID}"
+    read_only: true
+    ipc: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add: []
+    env_file:
+      - path: ./companion.env
+        required: false
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+          pids: 100
+    mem_reservation: 128M
+    tmpfs:
+      - /var/tmp/youtubei.js:mode=0700,uid=${APP_UID},gid=${APP_GID},noexec,nosuid,nodev,size=64m
+    volumes:
+      - companion_socket:/tmp
+      - /etc/localtime:/etc/localtime:ro
+    secrets:
+      - source: companion_key
+        target: inv_server_secret_key
+      # - source: youtube_session_cookies
+      #   target: inv_youtube_session_cookies
+      # - proxy_host
+      # - proxy_port
+      # - proxy_user
+      # - proxy_pass
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/probe", "companion"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - frontend_gateway
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  invidious:
+    image: ghcr.io/underhax/invidious-docker:${INVIDIOUS_VERSION:-latest}
+    container_name: invidious
+    hostname: invidious
+    restart: always
+    user: "${APP_UID}:${APP_GID}"
+    read_only: true
+    ipc: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add: []
+    env_file:
+      - path: ./invidious.env
+        required: false
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1024M
+          pids: 100
+    mem_reservation: 256M
+    tmpfs:
+      - /tmp:mode=1777,noexec,nosuid,nodev,size=64m
+    volumes:
+      - postgres_socket:/var/run/postgresql
+      - companion_socket:/var/run/companion
+      - /etc/localtime:/etc/localtime:ro
+    secrets:
+      - db_name
+      - db_user
+      - db_password
+      - inv_invidious_domain
+      - inv_invidious_external_port
+      - inv_invidious_admins
+      - inv_invidious_hmac_key
+      - source: companion_key
+        target: inv_invidious_invidious_companion_key
+      # - source: youtube_session_cookies
+      #   target: inv_invidious_cookies
+    depends_on:
+      postgres:
+        condition: service_healthy
+      companion:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/probe"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - frontend_gateway
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+secrets:
+  db_name:
+    file: ./secrets/db_name
+  db_user:
+    file: ./secrets/db_user
+  db_password:
+    file: ./secrets/db_password
+  inv_invidious_domain:
+    file: ./secrets/inv_invidious_domain
+  inv_invidious_external_port:
+    file: ./secrets/inv_invidious_external_port
+  inv_invidious_admins:
+    file: ./secrets/inv_invidious_admins
+  inv_invidious_hmac_key:
+    file: ./secrets/inv_invidious_hmac_key
+  companion_key:
+    file: ./secrets/companion_key
+  # youtube_session_cookies:
+  #   file: ./secrets/youtube_session_cookies
+  # proxy_host:
+  #   file: ./secrets/proxy_host
+  # proxy_port:
+  #   file: ./secrets/proxy_port
+  # proxy_user:
+  #   file: ./secrets/proxy_user
+  # proxy_pass:
+  #   file: ./secrets/proxy_pass
+
+volumes:
+  postgres_socket:
+    name: invidious_postgres_socket
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=8m,mode=0700,uid=${APP_UID},gid=${APP_GID},noexec,nosuid,nodev"
+  companion_socket:
+    name: invidious_companion_socket
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=16m,mode=0700,uid=${APP_UID},gid=${APP_GID},noexec,nosuid,nodev"
+
+networks:
+  frontend_gateway:
+    external: true
