@@ -55,7 +55,7 @@ services:
         max-file: "3"
 
   companion:
-    image: ghcr.io/underhax/invidious-docker:companion-${COMPANION_VERSION:-latest}
+    image: ghcr.io/underhax/invidious-companion:${COMPANION_VERSION:-latest}
     container_name: invidious-companion
     hostname: invidious-companion
     restart: always
@@ -106,7 +106,7 @@ services:
         max-file: "3"
 
   invidious:
-    image: ghcr.io/underhax/invidious-docker:${INVIDIOUS_VERSION:-latest}
+    image: ghcr.io/underhax/invidious:${INVIDIOUS_VERSION:-latest}
     container_name: invidious
     hostname: invidious
     restart: always

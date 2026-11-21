@@ -5,7 +5,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: underhax/invidious
+  IMAGE_COMPANION_NAME: underhax/invidious-companion
 
 permissions:
   contents: read
@@ -19,6 +20,7 @@ jobs:
       invidious_ver: ${{ steps.extract.outputs.invidious_ver }}
       companion_ver: ${{ steps.extract.outputs.companion_ver }}
       image_base: ${{ steps.extract.outputs.image_base }}
+      companion_image_base: ${{ steps.extract.outputs.companion_image_base }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -27,8 +29,10 @@ jobs:
         id: extract
         env:
           IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          COMPANION_IMAGE_REPO: ${{ env.REGISTRY }}/${{ env.IMAGE_COMPANION_NAME }}
         run: |
           IMAGE_BASE=$(printf '%s\n' "$IMAGE_REPO" | tr '[:upper:]' '[:lower:]')
+          COMPANION_IMAGE_BASE=$(printf '%s\n' "$COMPANION_IMAGE_REPO" | tr '[:upper:]' '[:lower:]')
           INVIDIOUS_REF=$(sed -nE 's|^FROM (quay\.io/invidious/invidious:[^ ]+) AS invidious-donor$|\1|p' Dockerfile | sed -E 's/:[^@]+@/@/')
           COMPANION_REF=$(sed -nE 's|^FROM (quay\.io/invidious/invidious-companion:[^ ]+) AS companion-donor$|\1|p' Dockerfile | sed -E 's/:[^@]+@/@/')
 
@@ -68,6 +72,7 @@ jobs:
           printf 'invidious_ver=%s\n' "$INVIDIOUS_VER" >> "$GITHUB_OUTPUT"
           printf 'companion_ver=%s\n' "$COMPANION_VER" >> "$GITHUB_OUTPUT"
           printf 'image_base=%s\n' "$IMAGE_BASE" >> "$GITHUB_OUTPUT"
+          printf 'companion_image_base=%s\n' "$COMPANION_IMAGE_BASE" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build (${{ matrix.platform }})
@@ -129,7 +134,7 @@ jobs:
           push: true
           platforms: ${{ matrix.platform }}
           tags: |
-            ${{ needs.prepare.outputs.image_base }}:companion-${{ needs.prepare.outputs.companion_ver }}${{ matrix.push_tag_suffix }}
+            ${{ needs.prepare.outputs.companion_image_base }}:${{ needs.prepare.outputs.companion_ver }}${{ matrix.push_tag_suffix }}
           provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -164,12 +169,11 @@ jobs:
 
       - name: Create Companion multi-arch manifest
         env:
-          BASE: ${{ needs.prepare.outputs.image_base }}
+          BASE: ${{ needs.prepare.outputs.companion_image_base }}
           COMP_VER: ${{ needs.prepare.outputs.companion_ver }}
         run: |
           docker buildx imagetools create \
-            --tag "${BASE}:companion-${COMP_VER}" \
-            --tag "${BASE}:companion-latest" \
-            --tag "${BASE}:companion" \
-            "${BASE}:companion-${COMP_VER}-amd64" \
-            "${BASE}:companion-${COMP_VER}-arm64"
+            --tag "${BASE}:${COMP_VER}" \
+            --tag "${BASE}:latest" \
+            "${BASE}:${COMP_VER}-amd64" \
+            "${BASE}:${COMP_VER}-arm64"
